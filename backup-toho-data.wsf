@@ -1,9 +1,15 @@
 <job id="mklink-toho">
   <script language="JScript" src="config.js"/>
+  <script language="JScript" src="common.js"/>
   <script language="JScript">
 
 var oShell = new ActiveXObject("WScript.Shell");
 var oFSO = new ActiveXObject("Scripting.FileSystemObject");
+
+var BACKUP_FAILED  = 0;
+var BACKUP_SUCCESS = 1;
+var BACKUP_LINK_DELETED = 2;
+var BACKUP_SKIPPED = 3;
 
 
 if (! userIsAdministrators()) {
@@ -18,15 +24,16 @@ if (! oFSO.folderExists(SAVEDATA_DIR)) {
     WScript.Quit();
 }
 
-var optDontShowSkipMsg = false;
+var optDontShowVerboseMsg = false;
 var args = WScript.Arguments;
 if (args.length > 0 &&
-    (args[0] === '/q' || args[0] === '/Q')) {
-    optDontShowSkipMsg = true;
+    (args(0) === '/q' || args(0) === '/Q')) {
+    optDontShowVerboseMsg = true;
 }
 
 var success_backup_files = [];
 var failed_backup_files = [];
+var linkDeleted = [];
 var skipped = [];
 var ctx = {};
 for (var name in PROG_INFO) {
@@ -65,22 +72,22 @@ for (var name in PROG_INFO) {
             var backupPath = getBackupDir(dest);
             var ret = backupDir(src, dest, backupPath);
             ctx.backup = backupPath;
-            if (ret === 1) {
+            if (ret === BACKUP_SUCCESS) {
                 success_backup_files.push(shallowCopy(ctx));
-            } else if (ret === 0) {
+            } else if (ret === BACKUP_FAILED) {
                 failed_backup_files.push(shallowCopy(ctx));
-                continue;
-            } // else if (ret === 2) { /* no files are backed up */
+            } else if (ret === BACKUP_LINK_DELETED) {
+                linkDeleted.push(shallowCopy(ctx));
+            }
         } else {
             var backupPath = getBackupFile(dest);
             var ret = backupFile(src, dest, backupPath);
             ctx.backup = backupPath;
-            if (ret === 1) {
+            if (ret === BACKUP_SUCCESS) {
                 success_backup_files.push(shallowCopy(ctx));
-            } else if (ret === 0) {
+            } else if (ret === BACKUP_FAILED) {
                 failed_backup_files.push(shallowCopy(ctx));
-                continue;
-            } // else if (ret === 2) { /* no files are backed up */
+            }
         }
     }
 }
@@ -93,11 +100,24 @@ showMsg(success_backup_files
         }
 );
 
-if (! optDontShowSkipMsg) {
+if (! optDontShowVerboseMsg) {
+    showMsg(linkDeleted
+            , "以下のリンクファイルは削除されました。"
+            , function(msg, ctx) {
+                msg += "\n  ";
+                if (ctx.key === 'datadir') {
+                    msg += ctx.name + '/' + '<datadirのフォルダ>';
+                } else {
+                    msg += ctx.name + '/' + ctx.prog_name;
+                }
+                return msg;
+            }
+    );
+
     showMsg(skipped
             , "以下のファイルはインストールされていなかったか、" +
                 "SAVEDATA_DIR フォルダに該当フォルダがなかったため" +
-                "リンクされませんでした。"
+                "スキップされました。"
             , function(msg, ctx) {
                 msg += "\n  ";
                 if (!ctx.key) {
@@ -124,15 +144,12 @@ showMsg(failed_backup_files
 
 
 function backupDir(src, dest, backupPath) {
-    var BACKUP_SUCCESS = 1;
-    var BACKUP_FAILED  = 0;
-    var BACKUP_SKIPPED = 2;
     try {
         if (pathExists(src)) {
             if (linkExists(src, dest)) {
                 // リンクだった場合、削除する
                 runBuiltinCmd(['rmdir', src]);
-                return BACKUP_SKIPPED;
+                return BACKUP_LINK_DELETED;
             } else {
                 // リンクでなかった場合、バックアップする
                 oFSO.moveFolder(src, backupPath);
@@ -154,31 +171,13 @@ function getBackupDir(dest) {
     }
 }
 
-function mklinkDir(link, target) {
-    return !runBuiltinCmd(['mklink', '/j', link, target]);
-}
-
-function removeLinkFile(link, target) {
-    var success = true;
-    if (pathExists(link)) {
-        if (linkExists(link, target)) {
-            // リンクだった場合、削除する
-            success = !runBuiltinCmd(['del', link]);
-        }
-    }
-    return success;
-}
-
 function backupFile(src, dest, backupPath) {
-    var BACKUP_SUCCESS = 1;
-    var BACKUP_FAILED  = 0;
-    var BACKUP_SKIPPED = 2;
     try {
         if (pathExists(src)) {
             if (linkExists(src, dest)) {
                 // リンクだった場合、削除する
                 runBuiltinCmd(['del', src]);
-                return BACKUP_SKIPPED;
+                return BACKUP_LINK_DELETED;
             } else {
                 // リンクでなかった場合、バックアップする
                 oFSO.moveFile(src, backupPath);
@@ -205,10 +204,6 @@ function getBackupFile(dest) {
     return dir + basename + '_backup_' + makeYYYYMMDDString() + ext;
 }
 
-function mklinkFile(link, target) {
-    return !runBuiltinCmd(['mklink', '/h', link, target]);
-}
-
 function makeYYYYMMDDString() {
     var now = new Date();
     var year = now.getYear();
@@ -217,22 +212,6 @@ function makeYYYYMMDDString() {
     var day = now.getDate();
         day = (day < 10 ? "0" : "") + day;
     return year + month + day;
-}
-
-function runBuiltinCmd(args) {
-    return runCmd(['cmd', '/q', '/c'].concat(args));
-}
-
-function runCmd(args) {
-    var cmdline = '';
-    for (var i in args) {
-        if (cmdline !== '') cmdline += ' ';
-        cmdline += shellescape(args[i]);
-    }
-    var WS_NOTVISIVLE = 0;    // ウインドウ非表示
-    var wait = true;          // 実行が終わるまで待つ
-    // WScript.Echo(cmdline);
-    return oShell.run(cmdline, WS_NOTVISIVLE, wait);
 }
 
 function linkExists(link, target) {
@@ -245,42 +224,6 @@ function linkExists(link, target) {
         return oFSO.getFolder(link).attributes & 1024;
     }
     return false;
-}
-
-function pathExists(path) {
-    return oFSO.fileExists(path) || oFSO.folderExists(path)
-}
-
-function shellescape(arg) {
-    if (arg.indexOf(' ') != -1) {
-        arg = '"' + arg + '"';
-    }
-    return arg;
-}
-
-function showMsg(results, titleMsg, msgBuilder) {
-    var msg = '';
-    for (var i in results) {
-        if (msg === '') {
-            msg = titleMsg;
-        }
-        msg = msgBuilder(msg, results[i]);
-    }
-    if (msg !== '') {
-        WScript.Echo(msg);
-    }
-}
-
-function userIsAdministrators() {
-    return !runBuiltinCmd("net user %USERNAME% | findstr Administrators");
-}
-
-function shallowCopy(obj) {
-    var copy = {};
-    for (var k in obj) {
-        copy[k] = obj[k];
-    }
-    return copy;
 }
 
 
