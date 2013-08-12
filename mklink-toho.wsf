@@ -53,9 +53,10 @@ for (var name in PROG_INFO) {
             continue;
         }
         if (PROG_INFO[name][key].type === 'dir') {
-            var ret = backupDir(link, target);
+            var backupPath = getBackupDir(target);
+            var ret = backupDir(link, target, backupPath);
             ctx.link = link;
-            ctx.backup = getBackupDir(target);
+            ctx.backup = backupPath;
             if (ret === 1) {
                 success_backup_files.push(shallowCopy(ctx));
             } else if (ret === 0) {
@@ -69,9 +70,10 @@ for (var name in PROG_INFO) {
                 failed.push(shallowCopy(ctx));
             }
         } else {
-            var ret = backupFile(link, target);
+            var backupPath = getBackupFile(target);
+            var ret = backupFile(link, target, backupPath);
             ctx.link = link;
-            ctx.backup = getBackupFile(target);
+            ctx.backup = backupPath;
             if (ret === 1) {
                 success_backup_files.push(shallowCopy(ctx));
             } else if (ret === 0) {
@@ -150,7 +152,7 @@ showMsg(failed
 
 
 
-function backupDir(link, target) {
+function backupDir(link, target, backupPath) {
     var BACKUP_SUCCESS = 1;
     var BACKUP_FAILED  = 0;
     var BACKUP_SKIPPED = 2;
@@ -162,7 +164,7 @@ function backupDir(link, target) {
                 return BACKUP_SKIPPED;
             } else {
                 // リンクでなかった場合、バックアップする
-                oFSO.moveFolder(link, getBackupDir(target));
+                oFSO.moveFolder(link, backupPath);
                 return BACKUP_SUCCESS;
             }
         }
@@ -174,7 +176,11 @@ function backupDir(link, target) {
 
 // 例：「replay」→「replay_backup_yyyymmdd」
 function getBackupDir(target) {
-    return target + '_backup_' + makeYYYYMMDDString();
+    if (! pathExists(target)) {
+        return target;
+    } else {
+        return target + '_backup_' + makeYYYYMMDDString();
+    }
 }
 
 function mklinkDir(link, target) {
@@ -192,7 +198,7 @@ function removeLinkFile(link, target) {
     return success;
 }
 
-function backupFile(link, target) {
+function backupFile(link, target, backupPath) {
     var BACKUP_SUCCESS = 1;
     var BACKUP_FAILED  = 0;
     var BACKUP_SKIPPED = 2;
@@ -204,7 +210,7 @@ function backupFile(link, target) {
                 return BACKUP_SKIPPED;
             } else {
                 // リンクでなかった場合、バックアップする
-                oFSO.moveFile(link, getBackupFile(target));
+                oFSO.moveFile(link, backupPath);
                 return BACKUP_SUCCESS;
             }
         }
@@ -215,6 +221,10 @@ function backupFile(link, target) {
 }
 
 function getBackupFile(target) {
+    if (! pathExists(target)) {
+        return target;
+    }
+
     // (例：「th08.cfg」→「th08_backup_yyyymmdd.cfg」)
     var dir = oFSO.getParentFolderName(target);
         dir = dir + (dir !== '' ? "\\" : '');
