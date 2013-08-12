@@ -12,9 +12,20 @@ if (! userIsAdministrators()) {
 }
 
 SAVEDATA_DIR = oShell.expandEnvironmentStrings(SAVEDATA_DIR);
-var ENUM_KEYS = ["replay", "score", "config", "bestshot", "datadir"];
-var success_backup_files = [];
-var failed_backup_files = [];
+if (! oFSO.folderExists(SAVEDATA_DIR)) {
+    WScript.Echo("SAVEDATA_DIR に指定されたパスが存在しません。\n" +
+                 "config.js を編集してください。");
+    WScript.Quit();
+}
+
+
+
+
+if (runCmd(['backup-toho-data.wsf', '/q'])) {
+    WScript.Echo("既存のデータを退避できませんでした。");
+    WScript.Quit();
+}
+
 var success = [];
 var skipped = [];
 var failed = [];
@@ -47,40 +58,20 @@ for (var name in PROG_INFO) {
             var link = prog_dir + "\\" + PROG_INFO[name][key].name;
             var target = save_dir + "\\" + PROG_INFO[name][key].name;
         }
+        ctx.link = link;
+        ctx.target = target;
         // リンク元がないためスキップ
         if (! pathExists(target)) {
             skipped.push(shallowCopy(ctx));
             continue;
         }
         if (PROG_INFO[name][key].type === 'dir') {
-            var backupPath = getBackupDir(target);
-            var ret = backupDir(link, target, backupPath);
-            ctx.link = link;
-            ctx.backup = backupPath;
-            if (ret === 1) {
-                success_backup_files.push(shallowCopy(ctx));
-            } else if (ret === 0) {
-                failed_backup_files.push(shallowCopy(ctx));
-                continue;
-            } // else if (ret === 2) { /* no files are backed up */
-
             if (mklinkDir(link, target)) {
                 success.push(shallowCopy(ctx));
             } else {
                 failed.push(shallowCopy(ctx));
             }
         } else {
-            var backupPath = getBackupFile(target);
-            var ret = backupFile(link, target, backupPath);
-            ctx.link = link;
-            ctx.backup = backupPath;
-            if (ret === 1) {
-                success_backup_files.push(shallowCopy(ctx));
-            } else if (ret === 0) {
-                failed_backup_files.push(shallowCopy(ctx));
-                continue;
-            } // else if (ret === 2) { /* no files are backed up */
-
             if (mklinkFile(link, target)) {
                 success.push(shallowCopy(ctx));
             } else {
@@ -89,22 +80,6 @@ for (var name in PROG_INFO) {
         }
     }
 }
-
-showMsg(success_backup_files
-        , "既に存在していたファイルは以下の場所にバックアップされました。"
-        , function(msg, ctx) {
-            msg += "\n  " + ctx.link + ' ==> ' + ctx.backup;
-            return msg;
-        }
-);
-
-showMsg(failed_backup_files
-        , "既に存在していたファイルのバックアップに失敗しました。"
-        , function(msg, ctx) {
-            msg += "\n  " + ctx.link + ' ==> ' + ctx.backup;
-            return msg;
-        }
-);
 
 showMsg(success
         , "以下のファイルは SAVEDATA_DIR フォルダとリンクされました。"

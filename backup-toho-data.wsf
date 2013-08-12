@@ -1,25 +1,41 @@
-<job id="copy-to-save-dir">
+<job id="mklink-toho">
   <script language="JScript" src="config.js"/>
   <script language="JScript">
 
 var oShell = new ActiveXObject("WScript.Shell");
 var oFSO = new ActiveXObject("Scripting.FileSystemObject");
 
-SAVEDATA_DIR = oShell.expandEnvironmentStrings(SAVEDATA_DIR);
 
-// SAVEDATA_DIR が存在しなければ作成する。
-if (! oFSO.folderExists(SAVEDATA_DIR)) {
-    runBuiltinCmd(['mkdir', SAVEDATA_DIR]);
+if (! userIsAdministrators()) {
+    WScript.Echo("管理者権限付きで実行してください。");
+    WScript.Quit();
 }
 
-var ENUM_KEYS = ["replay", "score", "config", "bestshot", "datadir"];
-var backed_up_files = [];
+SAVEDATA_DIR = oShell.expandEnvironmentStrings(SAVEDATA_DIR);
+if (! oFSO.folderExists(SAVEDATA_DIR)) {
+    WScript.Echo("SAVEDATA_DIR に指定されたパスが存在しません。\n" +
+                 "config.js を編集してください。");
+    WScript.Quit();
+}
+
+var optDontShowSkipMsg = false;
+var args = WScript.Arguments;
+if (args.length > 0 &&
+    (args[0] === '/q' || args[0] === '/Q')) {
+    optDontShowSkipMsg = true;
+}
+
+var success_backup_files = [];
+var failed_backup_files = [];
 var skipped = [];
+var ctx = {};
 for (var name in PROG_INFO) {
+    ctx = {name: name};
+
     var save_dir = SAVEDATA_DIR + "\\" + name;
     var prog_dir = PROG_INFO[name].dir;
     if (! oFSO.folderExists(prog_dir)) {
-        skipped.push(name);
+        skipped.push(shallowCopy(ctx));
         continue;
     }
 
@@ -28,6 +44,9 @@ for (var name in PROG_INFO) {
         if (! PROG_INFO[name][key]) {
             continue;
         }
+        ctx.key = key;
+        ctx.prog_name = PROG_INFO[name][key].name;
+
         if (key === 'datadir') {
             var src = oShell.expandEnvironmentStrings(PROG_INFO[name][key].name);
             var dest = save_dir;
@@ -35,98 +54,159 @@ for (var name in PROG_INFO) {
             var src = prog_dir + "\\" + PROG_INFO[name][key].name;
             var dest = save_dir + "\\" + PROG_INFO[name][key].name;
         }
+        ctx.src = src;
+        ctx.dest = dest;
+        // バックアップ元がないためスキップ
         if (! pathExists(src)) {
+            skipped.push(shallowCopy(ctx));
             continue;
         }
         if (PROG_INFO[name][key].type === 'dir') {
-            if (backup_dir(src, dest)) {
-                backed_up_files.push([src, get_backup_dir(dest)]);
-            }
+            var backupPath = getBackupDir(dest);
+            var ret = backupDir(src, dest, backupPath);
+            ctx.backup = backupPath;
+            if (ret === 1) {
+                success_backup_files.push(shallowCopy(ctx));
+            } else if (ret === 0) {
+                failed_backup_files.push(shallowCopy(ctx));
+                continue;
+            } // else if (ret === 2) { /* no files are backed up */
         } else {
-            if (backup_file(src, dest)) {
-                backed_up_files.push([src, get_backup_file(dest)]);
-            }
+            var backupPath = getBackupFile(dest);
+            var ret = backupFile(src, dest, backupPath);
+            ctx.backup = backupPath;
+            if (ret === 1) {
+                success_backup_files.push(shallowCopy(ctx));
+            } else if (ret === 0) {
+                failed_backup_files.push(shallowCopy(ctx));
+                continue;
+            } // else if (ret === 2) { /* no files are backed up */
         }
     }
 }
 
-var backup_msg = '';
-for (var i in backed_up_files) {
-    if (backup_msg === '') {
-        backup_msg = "既に存在していたファイルは以下の場所にバックアップされました。" ;
-    }
-    var link   = backed_up_files[i][0];
-    var target = backed_up_files[i][1];
-    backup_msg += "\n  " + link + ' ==> ' + target;
-}
-if (backup_msg !== '') {
-    WScript.Echo(backup_msg);
-}
-
-var skipped_msg = '';
-for (var i in skipped) {
-    if (skipped_msg === '') {
-        skipped_msg = "以下のシリーズはインストールされていなかったか、" +
-                      "SAVEDATA_DIR フォルダに該当フォルダがなかったためリンクされませんでした。";
-    }
-    skipped_msg += "\n  " + skipped[i];
-}
-if (skipped_msg !== '') {
-    WScript.Echo(skipped_msg);
-}
-
-
-
-
-function backup_dir(link, target) {
-    if (pathExists(link)) {
-        if (linkExists(link, target)) {
-            // リンクだった場合、削除する
-            runBuiltinCmd(['rmdir', link]);
-        } else {
-            // リンクでなかった場合、バックアップする
-            oFSO.moveFolder(link, get_backup_dir(target));
-            return true;
+showMsg(success_backup_files
+        , "既に存在していたファイルは以下の場所にバックアップされました。"
+        , function(msg, ctx) {
+            msg += "\n  " + ctx.src + ' ==> ' + ctx.backup;
+            return msg;
         }
+);
+
+if (! optDontShowSkipMsg) {
+    showMsg(skipped
+            , "以下のファイルはインストールされていなかったか、" +
+                "SAVEDATA_DIR フォルダに該当フォルダがなかったため" +
+                "リンクされませんでした。"
+            , function(msg, ctx) {
+                msg += "\n  ";
+                if (!ctx.key) {
+                    msg += ctx.name;
+                } else if (ctx.key === 'datadir') {
+                    msg += ctx.name + '/' + '<datadirのフォルダ>';
+                } else {
+                    msg += ctx.name + '/' + ctx.prog_name;
+                }
+                return msg;
+            }
+    );
+}
+
+showMsg(failed_backup_files
+        , "既に存在していたファイルのバックアップに失敗しました。"
+        , function(msg, ctx) {
+            msg += "\n  " + ctx.src + ' ==> ' + ctx.backup;
+            return msg;
+        }
+);
+
+
+
+
+function backupDir(src, dest, backupPath) {
+    var BACKUP_SUCCESS = 1;
+    var BACKUP_FAILED  = 0;
+    var BACKUP_SKIPPED = 2;
+    try {
+        if (pathExists(src)) {
+            if (linkExists(src, dest)) {
+                // リンクだった場合、削除する
+                runBuiltinCmd(['rmdir', src]);
+                return BACKUP_SKIPPED;
+            } else {
+                // リンクでなかった場合、バックアップする
+                oFSO.moveFolder(src, backupPath);
+                return BACKUP_SUCCESS;
+            }
+        }
+        return BACKUP_SKIPPED;
+    } catch (e) {
+        return BACKUP_FAILED;
     }
-    return false;
 }
 
 // 例：「replay」→「replay_backup_yyyymmdd」
-function get_backup_dir(target) {
-    return target + '_backup_' + makeYYYYMMDDString();
+function getBackupDir(dest) {
+    if (! pathExists(dest)) {
+        return dest;
+    } else {
+        return dest + '_backup_' + makeYYYYMMDDString();
+    }
 }
 
-function mklink_dir(link, target) {
-    runBuiltinCmd(['mklink', '/j', link, target]);
+function mklinkDir(link, target) {
+    return !runBuiltinCmd(['mklink', '/j', link, target]);
 }
 
-function backup_file(link, target) {
+function removeLinkFile(link, target) {
+    var success = true;
     if (pathExists(link)) {
         if (linkExists(link, target)) {
             // リンクだった場合、削除する
-            runBuiltinCmd(['del', link]);
-        } else {
-            // リンクでなかった場合、バックアップする
-            oFSO.moveFile(link, get_backup_file(target));
-            return true;
+            success = !runBuiltinCmd(['del', link]);
         }
     }
-    return false;
+    return success;
 }
 
-function get_backup_file(target) {
+function backupFile(src, dest, backupPath) {
+    var BACKUP_SUCCESS = 1;
+    var BACKUP_FAILED  = 0;
+    var BACKUP_SKIPPED = 2;
+    try {
+        if (pathExists(src)) {
+            if (linkExists(src, dest)) {
+                // リンクだった場合、削除する
+                runBuiltinCmd(['del', src]);
+                return BACKUP_SKIPPED;
+            } else {
+                // リンクでなかった場合、バックアップする
+                oFSO.moveFile(src, backupPath);
+                return BACKUP_SUCCESS;
+            }
+        }
+        return BACKUP_SKIPPED;
+    } catch (e) {
+        return BACKUP_FAILED;
+    }
+}
+
+function getBackupFile(dest) {
+    if (! pathExists(dest)) {
+        return dest;
+    }
+
     // (例：「th08.cfg」→「th08_backup_yyyymmdd.cfg」)
-    var dir = oFSO.getParentFolderName(target);
+    var dir = oFSO.getParentFolderName(dest);
         dir = dir + (dir !== '' ? "\\" : '');
-    var basename = oFSO.getBaseName(target);
-    var ext = oFSO.getExtensionName(target);
+    var basename = oFSO.getBaseName(dest);
+    var ext = oFSO.getExtensionName(dest);
         ext = (ext !== '' ? '.' : '') + ext;
     return dir + basename + '_backup_' + makeYYYYMMDDString() + ext;
 }
 
-function mklink_file(link, target) {
-    runBuiltinCmd(['mklink', '/h', link, target]);
+function mklinkFile(link, target) {
+    return !runBuiltinCmd(['mklink', '/h', link, target]);
 }
 
 function makeYYYYMMDDString() {
@@ -176,6 +256,31 @@ function shellescape(arg) {
         arg = '"' + arg + '"';
     }
     return arg;
+}
+
+function showMsg(results, titleMsg, msgBuilder) {
+    var msg = '';
+    for (var i in results) {
+        if (msg === '') {
+            msg = titleMsg;
+        }
+        msg = msgBuilder(msg, results[i]);
+    }
+    if (msg !== '') {
+        WScript.Echo(msg);
+    }
+}
+
+function userIsAdministrators() {
+    return !runBuiltinCmd("net user %USERNAME% | findstr Administrators");
+}
+
+function shallowCopy(obj) {
+    var copy = {};
+    for (var k in obj) {
+        copy[k] = obj[k];
+    }
+    return copy;
 }
 
 

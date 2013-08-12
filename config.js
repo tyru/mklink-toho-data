@@ -148,3 +148,4 @@ var PROG_INFO = {
         }
     }
 };
+var ENUM_KEYS = ["replay", "score", "config", "bestshot", "datadir"];
