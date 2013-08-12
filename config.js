@@ -89,7 +89,7 @@ var PROG_INFO = {
         }
         , 'score': {
             'type': 'file'
-            , 'name': 'score.dat'
+            , 'name': 'scoreth10.dat'
         }
         , 'config': {
             'type': 'file'
