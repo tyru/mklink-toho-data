@@ -147,5 +147,12 @@ var PROG_INFO = {
             , 'name': '%APPDATA%\\ShanghaiAlice\\th13'
         }
     }
+    , '“Œ•û‹Pjé': {
+        'dir': 'C:\\Program Files (x86)\\ãŠCƒAƒŠƒXŒ¶Ù’c\\“Œ•û‹Pjé'
+        , 'datadir': {
+            'type': 'dir'
+            , 'name': '%APPDATA%\\ShanghaiAlice\\th14'
+        }
+    }
 };
 var ENUM_KEYS = ["replay", "score", "config", "bestshot", "datadir"];
