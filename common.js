@@ -41,7 +41,7 @@ function showMsg(results, titleMsg, msgBuilder) {
 }
 
 function userIsAdministrators() {
-    return !runBuiltinCmd("net user %USERNAME% | findstr Administrators");
+    return !runBuiltinCmd("openfiles");
 }
 
 function shallowCopy(obj) {
